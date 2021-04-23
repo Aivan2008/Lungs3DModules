@@ -31,6 +31,7 @@ class VolumetricExperimentsWidget:
     self.logic = None
     self.displayNode = None
     self.roiNode = None
+    self.maskedVolumeNode = None
     
   def setup(self):
 
@@ -40,8 +41,8 @@ class VolumetricExperimentsWidget:
     self.parent.layout().addWidget( frame )
     
     # Markup selector
-    self.createVolumeButton = qt.QPushButton("Create test volume")
-    self.renderVolumeButton = qt.QPushButton("Render test volume")
+    #self.createVolumeButton = qt.QPushButton("Create test volume")
+    #self.renderVolumeButton = qt.QPushButton("Render test volume")
     
     self.applySegmentButton = qt.QPushButton("Apply segment")
     #layout.addRow(self.createVolumeButton, self.renderVolumeButton)
@@ -107,31 +108,112 @@ class VolumetricExperimentsWidget:
     layout.addRow(self.minButton) 
     '''
     
-    self.calcTubeDataButton = qt.QPushButton("Calc tube data")
+    #self.calcTubeDataButton = qt.QPushButton("Calc tube data")
     
-    self.testSegmentROIParamsButton = qt.QPushButton("Test segments parameters")
+    #self.testSegmentROIParamsButton = qt.QPushButton("Test segments parameters")
     
-    #self.applyRoiButton = qt.QPushButton("Apply ROI")
+    self.renderVolumeButton = qt.QPushButton("Render masked volume")
+    self.calcTubePositionButton = qt.QPushButton("Calc tube position")
     
-    layout.addRow(self.applySegmentButton)
-    layout.addRow(self.renderVolumeButton)
-    layout.addRow(self.calcTubeDataButton)
-    layout.addRow(self.testSegmentROIParamsButton)
+    #layout.addRow(self.applySegmentButton)
+    #layout.addRow(self.renderVolumeButton)
+    #layout.addRow(self.calcTubeDataButton)
+    #layout.addRow(self.testSegmentROIParamsButton)
     #layout.addRow(self.applyRoiButton)
-    
+
+    layout.addRow(self.renderVolumeButton)
+    layout.addRow(self.calcTubePositionButton)    
+        
     #connections
     #self.createVolumeButton.connect('clicked()', self.createVolume)
-    self.renderVolumeButton.connect('clicked()', self.renderVolume)
-    self.applySegmentButton.connect('clicked()', self.applySegment)
-    self.calcTubeDataButton.connect('clicked()', self.calcTubeData)
-    self.testSegmentROIParamsButton.connect('clicked()', self.testSegmentROIParams)
+    #self.renderVolumeButton.connect('clicked()', self.renderVolume)
+    #self.applySegmentButton.connect('clicked()', self.applySegment)
+    #self.calcTubeDataButton.connect('clicked()', self.calcTubeData)
+    #self.testSegmentROIParamsButton.connect('clicked()', self.testSegmentROIParams)
     #self.applyRoiButton.connect('clicked()', self.applyROI)
+    
+    self.renderVolumeButton.connect('clicked()', self.renderVolume)
+    self.calcTubePositionButton.connect('clicked()', self.calcTubePosition)
     
     #self.maxButton.connect("clicked()", self.maxButtonClicked)
     #self.minButton.connect("clicked()", self.minButtonClicked)
    
-   
-  def testSegmentROIParams(self):
+  
+  def renderVolume(self):
+    segmentationNode = self.segmentSelector.currentNode()  
+    self.volumeNode = self.volumeSelector.currentNode()
+    
+    #Show segment
+    segmentationDisplayNode = segmentationNode.GetDisplayNode()
+    segmentationDisplayNode.SetSegmentVisibility('Segment_1', True)
+    segmentationDisplayNode.SetSegmentVisibility('Segment_2', False)
+
+    # Write segmentation to labelmap volume node with a geometry that matches the volume node
+    labelmapVolumeNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLLabelMapVolumeNode')
+    slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(segmentationNode, labelmapVolumeNode, self.volumeNode)
+
+    # Masking
+    import numpy as np
+    voxels = slicer.util.arrayFromVolume(self.volumeNode)
+    mask = slicer.util.arrayFromVolume(labelmapVolumeNode)
+    maskedVoxels = np.copy(voxels)  # we don't want to modify the original volume
+    maskedVoxels[mask==0] = -1000
+
+    # Write masked volume to volume node and show it
+    if self.maskedVolumeNode!=None:
+        slicer.mrmlScene.RemoveNode(self.maskedVolumeNode)
+        self.maskedVolumeNode=None
+        
+    self.maskedVolumeNode = slicer.modules.volumes.logic().CloneVolume(self.volumeNode, "Masked")
+    slicer.util.updateVolumeFromArray(self.maskedVolumeNode, maskedVoxels)
+    slicer.util.setSliceViewerLayers(self.maskedVolumeNode)
+    
+    
+    
+    logic = slicer.modules.volumerendering.logic()
+    #self.volumeNode = self.volumeSelector.currentNode()
+    self.volumePreset = logic.GetPresetByName(self.ctTypeSelector.currentText)
+    
+    if self.roiNode == None:
+        self.roiNode=slicer.mrmlScene.AddNewNodeByClass("vtkMRMLAnnotationROINode")
+        self.roiNode.SetName("Masked render ROI")
+        
+    if self.displayNode!=None:
+        slicer.mrmlScene.RemoveNode(self.displayNode)
+        self.displayNode=None
+    
+    if self.maskedVolumeNode!=None:
+        self.displayNode = logic.CreateVolumeRenderingDisplayNode()
+        self.displayNode.SetAndObserveROINodeID(self.roiNode.GetID())
+        self.displayNode.SetCroppingEnabled(1)
+        self.displayNode.UnRegister(logic)
+        #print(self.displayNode)        
+        slicer.mrmlScene.AddNode(self.displayNode)
+        
+        self.maskedVolumeNode.AddAndObserveDisplayNodeID(self.displayNode.GetID())
+        logic.UpdateDisplayNodeFromVolumeNode(self.displayNode, self.maskedVolumeNode)
+        self.propertyNode = self.displayNode.GetVolumePropertyNode()
+        self.propertyNode.Copy(self.volumePreset)
+        self.displayNode.SetVisibility(1)
+        
+############################################################
+
+  def calcTubePosition(self):
+    #Switch visibility
+    segmentationNode = self.segmentSelector.currentNode() 
+    segmentationDisplayNode = segmentationNode.GetDisplayNode()
+    segmentationDisplayNode.SetSegmentVisibility('Segment_1', False)
+    segmentationDisplayNode.SetSegmentVisibility('Segment_2', True)
+    #Calc ROI
+    self.calcSegmentPosition()
+    
+    #Render tube
+    segmentationNode.GetSegmentation().SetConversionParameter('Smoothing factor','0.0')
+    segmentationNode.CreateClosedSurfaceRepresentation()
+  
+############################################################
+  
+  def calcSegmentPosition(self):
     print("Fnc")
     segmentationNode = self.segmentSelector.currentNode() 
 
@@ -172,7 +254,10 @@ class VolumetricExperimentsWidget:
         transformNode.SetAndObserveMatrixTransformToParent(boundingBoxToRasTransformMatrix)
         roi.SetAndObserveTransformNodeID(transformNode.GetID())
   
-  def calcTubeData(self):
+
+  
+  '''    
+    def calcTubeData(self):
     #segmentationNode = self.segmentSelector.currentNode() 
     #slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(segmentationNode, labelmapVolumeNode, self.volumeNode)
     segmentationNode = self.segmentSelector.currentNode() 
@@ -186,7 +271,6 @@ class VolumetricExperimentsWidget:
     points = polyData.GetPoints()
     pointsNum = points.GetNumberOfPoints()
     
-    f = open("/home/ivan/points.txt", 'w')
     
     for point_id in range(pointsNum):
         pt=[]
@@ -197,6 +281,66 @@ class VolumetricExperimentsWidget:
     
     #print("Point number:", pointNum)
       
+
+    
+    
+  def applySegment(self):
+    # Input nodes
+    #volumeNode = getNode('MRHead')
+    segmentationNode = self.segmentSelector.currentNode()  
+    self.volumeNode = self.volumeSelector.currentNode()
+
+    # Write segmentation to labelmap volume node with a geometry that matches the volume node
+    labelmapVolumeNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLLabelMapVolumeNode')
+    slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(segmentationNode, labelmapVolumeNode, self.volumeNode)
+
+    # Masking
+    import numpy as np
+    voxels = slicer.util.arrayFromVolume(self.volumeNode)
+    mask = slicer.util.arrayFromVolume(labelmapVolumeNode)
+    maskedVoxels = np.copy(voxels)  # we don't want to modify the original volume
+    maskedVoxels[mask==0] = -1000
+
+    # Write masked volume to volume node and show it
+    maskedVolumeNode = slicer.modules.volumes.logic().CloneVolume(self.volumeNode, "Masked")
+    slicer.util.updateVolumeFromArray(maskedVolumeNode, maskedVoxels)
+    slicer.util.setSliceViewerLayers(maskedVolumeNode)
+    
+    self.volumeNode = self.volumeSelector.currentNode()
+    
+  def renderVolume(self):
+    logic = slicer.modules.volumerendering.logic()
+    self.volumeNode = self.volumeSelector.currentNode()
+    self.volumePreset = logic.GetPresetByName(self.ctTypeSelector.currentText)
+    
+    if self.roiNode == None:
+        self.roiNode=slicer.mrmlScene.AddNewNodeByClass("vtkMRMLAnnotationROINode")
+        self.roiNode.SetName("Masked render ROI")
+        
+    if self.displayNode!=None:
+        slicer.mrmlScene.RemoveNode(self.displayNode)
+        self.displayNode=None
+    
+    if self.volumeNode!=None:
+        self.displayNode = logic.CreateVolumeRenderingDisplayNode()
+        self.displayNode.SetAndObserveROINodeID(self.roiNode.GetID())
+        self.displayNode.SetCroppingEnabled(1)
+        self.displayNode.UnRegister(logic)
+        print(self.displayNode)        
+        slicer.mrmlScene.AddNode(self.displayNode)
+        
+        self.volumeNode.AddAndObserveDisplayNodeID(self.displayNode.GetID())
+        logic.UpdateDisplayNodeFromVolumeNode(self.displayNode, self.volumeNode)
+        self.propertyNode = self.displayNode.GetVolumePropertyNode()
+        self.propertyNode.Copy(self.volumePreset)
+        
+        
+        self.displayNode.SetVisibility(1)
+        #self.propertyNode = self.displayNode.GetVolumePropertyNode()
+    def applyROI(self):
+      self.displayNode.SetAndObserveROINodeID(self.roiNode.GetID())
+      self.displayNode.CroppingEnabled = 1 
+  
   def createVolume(self):
     nodeName = "MyNewVolume"
     imageSize = [512, 512, 512]
@@ -242,67 +386,8 @@ class VolumetricExperimentsWidget:
           imageData.SetScalarComponentFromDouble(i,j,k,0,functionValue)
     imageData.SetScalarComponentFromFloat(distortionVectorPosition_Ijk[0], distortionVectorPosition_Ijk[1], distortionVectorPosition_Ijk[2], 0, fillValue)
     imageData.Modified()
-    
-    
-  def applySegment(self):
-    # Input nodes
-    #volumeNode = getNode('MRHead')
-    segmentationNode = self.segmentSelector.currentNode()  
-    self.volumeNode = self.volumeSelector.currentNode()
-
-    # Write segmentation to labelmap volume node with a geometry that matches the volume node
-    labelmapVolumeNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLLabelMapVolumeNode')
-    slicer.modules.segmentations.logic().ExportVisibleSegmentsToLabelmapNode(segmentationNode, labelmapVolumeNode, self.volumeNode)
-
-    # Masking
-    import numpy as np
-    voxels = slicer.util.arrayFromVolume(self.volumeNode)
-    mask = slicer.util.arrayFromVolume(labelmapVolumeNode)
-    maskedVoxels = np.copy(voxels)  # we don't want to modify the original volume
-    maskedVoxels[mask==0] = -1000
-
-    # Write masked volume to volume node and show it
-    maskedVolumeNode = slicer.modules.volumes.logic().CloneVolume(self.volumeNode, "Masked")
-    slicer.util.updateVolumeFromArray(maskedVolumeNode, maskedVoxels)
-    slicer.util.setSliceViewerLayers(maskedVolumeNode)
-    
-    self.volumeNode = self.volumeSelector.currentNode()
-  
-  def applyROI(self):
-      self.displayNode.SetAndObserveROINodeID(self.roiNode.GetID())
-      self.displayNode.CroppingEnabled = 1 
-    
-  def renderVolume(self):
-    logic = slicer.modules.volumerendering.logic()
-    self.volumeNode = self.volumeSelector.currentNode()
-    self.volumePreset = logic.GetPresetByName(self.ctTypeSelector.currentText)
-    
-    if self.roiNode == None:
-        self.roiNode=slicer.mrmlScene.AddNewNodeByClass("vtkMRMLAnnotationROINode")
-        self.roiNode.SetName("Masked render ROI")
-        
-    if self.displayNode!=None:
-        slicer.mrmlScene.RemoveNode(self.displayNode)
-        self.displayNode=None
-    
-    if self.volumeNode!=None:
-        self.displayNode = logic.CreateVolumeRenderingDisplayNode()
-        self.displayNode.SetAndObserveROINodeID(self.roiNode.GetID())
-        self.displayNode.SetCroppingEnabled(1)
-        self.displayNode.UnRegister(logic)
-        print(self.displayNode)        
-        slicer.mrmlScene.AddNode(self.displayNode)
-        
-        self.volumeNode.AddAndObserveDisplayNodeID(self.displayNode.GetID())
-        logic.UpdateDisplayNodeFromVolumeNode(self.displayNode, self.volumeNode)
-        self.propertyNode = self.displayNode.GetVolumePropertyNode()
-        self.propertyNode.Copy(self.volumePreset)
-        
-        
-        self.displayNode.SetVisibility(1)
-        #self.propertyNode = self.displayNode.GetVolumePropertyNode()
      
-  '''   
+    
   def setMinMaxVolumeSettings(self, min_val, max_val, thresh):
     of = vtk.vtkPiecewiseFunction()
     of.AddPoint(-10000, thresh)
