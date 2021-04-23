@@ -230,6 +230,7 @@ class VolumetricExperimentsWidget:
     stats = segStatLogic.getStatistics()
 
     print("Statc calcd")
+
     # Draw ROI for each oriented bounding box
     import numpy as np
     for segmentId in stats['SegmentIDs']:
@@ -246,8 +247,29 @@ class VolumetricExperimentsWidget:
         roi.SetName(segment.GetName()+' bounding box')
         roi.SetXYZ(0.0, 0.0, 0.0)
         roi.SetRadiusXYZ(*(0.5*obb_diameter_mm))
+        
+        spacing = self.volumeNode.GetSpacing()
+        print(spacing)
+        
+        #obb_end_center_ras = spacing[1]*obb_direction_ras_z + obb_origin_ras+0.5*(obb_diameter_mm[0] * obb_direction_ras_x + obb_diameter_mm[1] * obb_direction_ras_y)
+        #print(obb_end_center_ras);
+        
+        
+        # fix for dicretization errors
+        obb_diameter_mm[2] = obb_diameter_mm[2] - spacing[1];
+        # construct cylinder coord system
+        cyl_direction_ras_z = -obb_direction_ras_z;
+        cyl_direction_ras_y = np.cross(cyl_direction_ras_z, np.append(cyl_direction_ras_z[0:2],0))
+        cyl_direction_ras_x = np.cross(cyl_direction_ras_y,cyl_direction_ras_z)
+
         # Position and orient ROI using a transform
         obb_center_ras = obb_origin_ras+0.5*(obb_diameter_mm[0] * obb_direction_ras_x + obb_diameter_mm[1] * obb_direction_ras_y + obb_diameter_mm[2] * obb_direction_ras_z)
+        obb_end1center_ras = obb_center_ras - 0.5* obb_diameter_mm[2] * obb_direction_ras_z;
+        obb_end2center_ras = obb_center_ras + 0.5* obb_diameter_mm[2] * obb_direction_ras_z;
+        print(obb_end1center_ras)
+        print(obb_end2center_ras)
+        print(np.column_stack((obb_direction_ras_x, obb_direction_ras_y, obb_direction_ras_z)))
+
         boundingBoxToRasTransform = np.row_stack((np.column_stack((obb_direction_ras_x, obb_direction_ras_y, obb_direction_ras_z, obb_center_ras)), (0, 0, 0, 1)))
         boundingBoxToRasTransformMatrix = slicer.util.vtkMatrixFromArray(boundingBoxToRasTransform)
         transformNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLTransformNode')
