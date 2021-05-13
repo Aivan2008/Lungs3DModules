@@ -114,6 +114,8 @@ class VolumetricExperimentsWidget:
     
     self.renderVolumeButton = qt.QPushButton("Render masked volume")
     self.calcTubePositionButton = qt.QPushButton("Calc tube position")
+    layout.addRow(self.renderVolumeButton)
+    layout.addRow(self.calcTubePositionButton) 
     
     #layout.addRow(self.applySegmentButton)
     #layout.addRow(self.renderVolumeButton)
@@ -121,8 +123,7 @@ class VolumetricExperimentsWidget:
     #layout.addRow(self.testSegmentROIParamsButton)
     #layout.addRow(self.applyRoiButton)
 
-    layout.addRow(self.renderVolumeButton)
-    layout.addRow(self.calcTubePositionButton)    
+       
         
     #connections
     #self.createVolumeButton.connect('clicked()', self.createVolume)
