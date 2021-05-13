@@ -94,6 +94,7 @@ class LungsImporterWidget:
       print("Nii will be: ", niiFile)
       segmentation_dicom.segmentation(self.selectedDirectory, niiFile, volume_name, self.segmentationProgressBar)
       self.segments_list.append(niiFile)
+      self.segmentationProgressBar.setValue(100)
       print("Segmentation finished")
     else:
       self.segmentationProgressBar.setEnabled(True)

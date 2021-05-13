@@ -39,13 +39,59 @@ class DoseVisualizerWidget:
     self.displayNode = None
     self.roiNode = None
     self.selectedDirectory=""
+    self.segmentationNode=None
+    self.volumeNode=None
     
   def setup(self):
 
+    print(qt)
     frame = qt.QFrame()
     layout = qt.QFormLayout()
     frame.setLayout( layout )
     self.parent.layout().addWidget( frame )
+    
+    self.tableFrame = qt.QFrame()
+    self.doseLayout = qt.QGridLayout()
+    self.tableFrame.setLayout(self.doseLayout)
+    self.parent.layout().addWidget(self.tableFrame)
+    bins = [-1000, 0, 5, 10, 25, 50, 75, 100, 1000]
+    self.color_widgets = []
+    self.color_widgets.append(self.getColorWidgets("-1000", "0", 0.0, 0.0, 1.0))
+    b = 0
+    count = len(bins)-3
+    step = 1.0/count
+    g = 1.0
+    r = 0.0
+    for index in range(1, count+1):
+        self.color_widgets.append(self.getColorWidgets(str(bins[index]), str(bins[index+1]), r, g, b))
+        r+=step
+        g-=step
+        if r<0.0:
+          r = 0.0
+        if r>1.0:
+          r = 1.0
+        if g<0.0:
+          g = 0.0
+        if g>1.0:
+          g = 1.0
+          
+    self.color_widgets.append(self.getColorWidgets("100", "1000", 1.0, 1.0, 1.0))
+         
+    self.mindlbl = qt.QLabel()
+    self.mindlbl.setText("Min dose")
+    self.maxdlbl = qt.QLabel()
+    self.maxdlbl.setText("Max dose")
+    self.clrlbl = qt.QLabel()
+    self.clrlbl.setText("Area color")
+    self.doseLayout.addWidget(self.mindlbl, 0, 0) 
+    self.doseLayout.addWidget(self.maxdlbl, 0, 1) 
+    self.doseLayout.addWidget(self.clrlbl, 0, 2) 
+    row = 1
+    for d in self.color_widgets:
+      self.doseLayout.addWidget(d["min_lbl"], row, 0)
+      self.doseLayout.addWidget(d["max_lbl"], row, 1)
+      self.doseLayout.addWidget(d["line_ed"], row, 2)
+      row+=1
     
     self.selectorLabel = qt.QLabel()
     self.selectorLabel.setText( "Reference volume: " )
@@ -66,26 +112,97 @@ class DoseVisualizerWidget:
     self.bodySegmentSelector.selectNodeUponCreation = True
     self.bodySegmentSelector.setMRMLScene( slicer.mrmlScene )
     
+    self.doseSegmentSelectorLabel = qt.QLabel()
+    self.doseSegmentSelectorLabel.setText( "Isodose segment: " )
+    self.doseSegmentSelector = slicer.qMRMLNodeComboBox()
+    self.doseSegmentSelector.nodeTypes = ( "vtkMRMLSegmentationNode", "" )
+    self.doseSegmentSelector.noneEnabled = False
+    self.doseSegmentSelector.selectNodeUponCreation = True
+    self.doseSegmentSelector.setMRMLScene( slicer.mrmlScene )
+    
     
     self.showRadiationMarkerCheckBox = qt.QCheckBox()
     self.showRadiationMarkerCheckBox.setText("Show test marker")
     
     self.visualizeSegmentButton = qt.QPushButton("Visualize segment")
     self.generateIsolinesButton = qt.QPushButton("Generate isolines")
+    #self.visualizeIsodoseButton = qt.QPushButton("Visualize isodose segment")
     
     
     layout.addRow(self.selectorLabel, self.volumeSelector)  
     layout.addRow(self.bodySegmentSelectorLabel, self.bodySegmentSelector) 
+    #layout.addRow(self.doseSegmentSelectorLabel, self.doseSegmentSelector) 
     layout.addRow(self.showRadiationMarkerCheckBox)
     layout.addRow(self.visualizeSegmentButton)
     layout.addRow(self.generateIsolinesButton)
+    #layout.addRow(self.visualizeIsodoseButton)
     
     self.visualizeSegmentButton.connect('clicked()', self.visualizeSegment)
     self.generateIsolinesButton.connect('clicked()', self.generateIsolines)
+    #self.visualizeIsodoseButton.connect('clicked()', self.visualizeIsodose)
     self.showRadiationMarkerCheckBox.connect('clicked(bool)', self.showRadiationMarkerCheckBoxChecked)
   
+  def getColorWidgets(self, min_txt, max_txt, r,g,b):
+    color = {}
+    color['r']=r
+    color['g']=g
+    color['b']=b
+    color["min_lbl"] = qt.QLabel()
+    color["min_lbl"].setText(min_txt)
+    color["max_lbl"] = qt.QLabel()
+    color["max_lbl"].setText(max_txt)
+    color["line_ed"] = qt.QLineEdit()
+    color["line_ed"].setText("")
+    color["line_ed"].setReadOnly(True)
+    color["line_ed"].setStyleSheet("background: rgb({}, {}, {});".format(int(r*255), int(g*255), int(b*255))) 
+    color["line_ed"].setFixedWidth(150)
+    return color
+  def visualizeIsodose(self):
+    #self.segmentationNode = self.doseSegmentSelector.currentNode()
+    self.segmentationNode.GetSegmentation().SetConversionParameter('Smoothing factor','1.0')
+    segmentationDisplayNode = self.segmentationNode.GetDisplayNode()
+    segmentationDisplayNode.SetAllSegmentsVisibility(True)
+    visibleSegmentIds = vtk.vtkStringArray()
+    self.segmentationNode.GetDisplayNode().GetVisibleSegmentIDs(visibleSegmentIds)
+    '''
+    for segmentIndex in range(visibleSegmentIds.GetNumberOfValues()):
+        segmentID = visibleSegmentIds.GetValue(segmentIndex)
+        if segmentIndex<1:
+          segmentationDisplayNode.SetSegmentVisibility(segmentID, False)
+    '''
+    
+    visibleSegmentIds = vtk.vtkStringArray()
+    self.segmentationNode.GetDisplayNode().GetVisibleSegmentIDs(visibleSegmentIds)
+    segments_ids = []
+    b = 0
+    count = visibleSegmentIds.GetNumberOfValues()
+    step = 1.0/count
+    g = 1.0
+    r = 0.0
+    for segmentIndex in range(visibleSegmentIds.GetNumberOfValues()):
+        segmentID = visibleSegmentIds.GetValue(segmentIndex)
+        segmentationDisplayNode.SetSegmentOverrideColor(segmentID, r, g, b)
+        r+=step
+        g-=step
+        if r<0.0:
+          r = 0.0
+        if r>1.0:
+          r = 1.0
+        if g<0.0:
+          g = 0.0
+        if g>1.0:
+          g = 1.0
+        print(segmentID)
+        
+    segmentationDisplayNode.SetSegmentVisibility(visibleSegmentIds.GetValue(0), False)
+    self.segmentationNode.CreateClosedSurfaceRepresentation()
+    segmentationDisplayNode.SetOpacity3D(0.1)
+    #self.createMarkerForRadiation()
+  
+  
+  
   def visualizeSegment(self):
-    segmentationNode = self.bodySegmentSelector.currentNode() 
+    segmentationNode = self.bodySegmentSelector.currentNode()
     segmentationNode.GetSegmentation().SetConversionParameter('Smoothing factor','1.0')
     segmentationDisplayNode = segmentationNode.GetDisplayNode()
     segmentationDisplayNode.SetSegmentVisibility('Segment_1', True)
@@ -108,6 +225,10 @@ class DoseVisualizerWidget:
     self.radiationRoi.GetControlPointWorldCoordinates(1, radius)
     '''data = {'center': center, 'radius': radius}
     print(data)'''
+    
+    if self.volumeNode!=None:
+      slicer.mrmlScene.RemoveNode(self.volumeNode)
+      self.volumeNode=None
     
     referenceVolume = self.volumeSelector.currentNode()
     
@@ -200,12 +321,27 @@ class DoseVisualizerWidget:
     
     #Inverse, large values inside
     
-    #arr = np.subtract(1.0, arr)
-    #arr = arr*256
+    arr = np.subtract(1.0, arr)
+    arr = arr*100.0
+    
+    print("min", np.min(arr), "max", np.max(arr))
+    
+    #digitize an array (reverse quadratic)
+    '''
+    bins_temp = []
+    for x in range(0, 11):
+      bins_temp.append(x*x)
+    bins_temp.reverse()
+    bins = [100-x for x in bins_temp]
+    '''
+    bins = [-1000, 0, 5, 10, 25, 50, 75, 100, 1000]
+    arr = np.digitize(arr, bins)
+    
+    
     #arr = arr.round()
     #print(arr[int(d_x/2), :, :])
     
-    cv2.imshow("arr", arr[int(d_x/2), :, :])
+    #cv2.imshow("arr", arr[int(d_x/2), :, :])
         
     voxelArray = slicer.util.arrayFromVolume(self.volumeNode)
     
@@ -226,8 +362,24 @@ class DoseVisualizerWidget:
     voxelArray[с1[0]:с2[0], с1[1]:с2[1], с1[2]:с2[2]] = arr
     self.volumeNode.Modified()
     
+    '''
     d = {"volume_array":arr}
     savemat("volume.mat", d)
+    '''
+    
+    filename = os.path.join(os.getcwd(),"volume.nrrd") 
+    
+    myStorageNode = self.volumeNode.CreateDefaultStorageNode()
+    myStorageNode.SetFileName(filename)
+    myStorageNode.WriteData(self.volumeNode)
+    
+    if self.segmentationNode!=None:
+      slicer.mrmlScene.RemoveNode(self.segmentationNode)
+      self.segmentationNode=None
+    
+    self.segmentationNode = slicer.util.loadSegmentation(filename)
+    self.segmentationNode.SetName("DoseSegmentation")
+    self.visualizeIsodose()
 
     
     
