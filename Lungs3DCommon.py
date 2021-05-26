@@ -2,7 +2,8 @@ import math
 import os
 from DICOMLib import DICOMUtils
 import pydicom
-from segmentation_dicom_python import segmentation_dicom
+import numpy as np
+#from segmentation_dicom_python import segmentation_dicom
 
 from __main__ import qt, slicer, vtk
 
@@ -368,7 +369,6 @@ class Lungs3DCommonWidget:
     print("Statc calcd")
 
     # Draw ROI for each oriented bounding box
-    import numpy as np
     for segmentId in stats['SegmentIDs']:
         print(segmentId)
         # Get bounding box
@@ -413,21 +413,63 @@ class Lungs3DCommonWidget:
         roi.SetRadiusXYZ(*(0.5*obb_diameter_mm))
 
         # construct cylinder coord system
-        # here Z is pointing outward from the cylinder
+        # here Z is meant to be pointing outward from the cylinder
         cyl_direction_ras_z = -1*np.sign(obb_direction_ras_z[2])*obb_direction_ras_z;
         cyl_direction_ras_z *= 1/np.linalg.norm(cyl_direction_ras_z)
         cyl_direction_ras_y = np.cross(cyl_direction_ras_z, np.append(cyl_direction_ras_z[0:2],0))
         cyl_direction_ras_y *= 1/np.linalg.norm(cyl_direction_ras_y)
         cyl_direction_ras_x = np.cross(cyl_direction_ras_y,cyl_direction_ras_z)
         cyl_direction_ras_x *= 1/np.linalg.norm(cyl_direction_ras_x)
-
-        print('orientation2')
-        print(np.column_stack((cyl_direction_ras_x, cyl_direction_ras_y, cyl_direction_ras_z)))
         
         obb_end1center_ras = obb_center_ras - 0.5* obb_diameter_mm[2] * cyl_direction_ras_z;
         obb_end2center_ras = obb_center_ras + 0.5* obb_diameter_mm[2] * cyl_direction_ras_z;
+
+        self.tubeToRasTransform = np.row_stack((np.column_stack((cyl_direction_ras_x, cyl_direction_ras_y, cyl_direction_ras_z, obb_end2center_ras)), (0, 0, 0, 1)))
+        self.rasToTubeTransform = self.invertTransform(self.tubeToRasTransform)
+        
+        print('orientation2')
+        print(obb_end1center_ras)
+        print(obb_end2center_ras)
+        print(np.column_stack((cyl_direction_ras_x, cyl_direction_ras_y, cyl_direction_ras_z)))
+        print('tubeToRasTransform')
+        print(self.tubeToRasTransform)
+
+
         boundingBoxToRasTransform = np.row_stack((np.column_stack((cyl_direction_ras_x, cyl_direction_ras_y, cyl_direction_ras_z, obb_center_ras)), (0, 0, 0, 1)))
         boundingBoxToRasTransformMatrix = slicer.util.vtkMatrixFromArray(boundingBoxToRasTransform)
+
         transformNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLTransformNode')
         transformNode.SetAndObserveMatrixTransformToParent(boundingBoxToRasTransformMatrix)
         roi.SetAndObserveTransformNodeID(transformNode.GetID())
+
+  def transformPoints(self, points, transform):
+    # apply an affine transformation to an array if 3D points.
+    # points is a Nx3 or 3xN numpy array of 3d coordinates;
+    # transform is a 4x4 affine transformation matrix;
+    
+    # check the form of points array and create an 4-by-N array
+    # of homogeneous points.
+    inputHorizontal = True
+    if np.size(points,0) == 3:
+        pts = np.row_stack((points,np.ones(np.size(points,1))))
+    elif np.size(points,1) == 3:
+        pts = np.row_stack((points.transpose(),np.ones(np.size(points,0))))
+        inputHorizontal = False
+    else:
+        error = np.linalg.LinAlgError('incorrect input size')
+
+    # applying transform
+    pts = transform.dot(pts)
+    pts = pts[:3,:]
+
+    # change output shape to match input
+    if not inputHorizontal:
+        pts = pts.transpose()
+    
+    return pts
+
+  def invertTransform(self, transform):
+    rot = transform[:3,:3]
+    t = transform[:3,3]
+    inverse = np.row_stack((np.column_stack((rot.transpose(),-rot.transpose().dot(t))),(0,0,0,1)))
+    return inverse
