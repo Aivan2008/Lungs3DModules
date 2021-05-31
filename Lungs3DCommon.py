@@ -3,7 +3,7 @@ import os
 from DICOMLib import DICOMUtils
 import pydicom
 import numpy as np
-#from segmentation_dicom_python import segmentation_dicom
+from segmentation_dicom_python import segmentation_dicom
 
 from __main__ import qt, slicer, vtk
 
